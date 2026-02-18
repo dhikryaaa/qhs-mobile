@@ -142,11 +142,11 @@ flutter_native_splash:
     # with background: 960×960 px (fit within circle 640px in diameter)    
     # without background: 1152×1152 px (fit within circle 768px in diameter)
     # ensure that the most important design elements of your image are placed within a circular area 
-    # image: assets/logo_container.png    
+    image: assets/logo_container_android.png    
     # image_dark: assets/images/logo/logo-splash2.png  
 
     # center-logo background color
-    icon_background_color: "#111111"
+    # icon_background_color: "#111111"
     # icon_background_color_dark: "#eeeeee"
 
     # branding:
