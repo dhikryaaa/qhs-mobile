@@ -1,21 +1,94 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
+
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final TextEditingController noIndukController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+
+  bool isLoading = false;
+
+  Future<void> login() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    String baseUrl() {
+      if (kIsWeb) {
+        return "http://localhost:8000";
+      } else {
+        return "http://10.0.2.2:8000";
+      }
+    }
+
+    final url = Uri.parse(
+      "${baseUrl()}/api/mobile/login",
+    );
+
+    final response = await http.post(
+      url,
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: jsonEncode({
+        "no_induk": noIndukController.text,
+        "password": passwordController.text,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+
+    setState(() {
+      isLoading = false;
+    });
+
+    if (!mounted) return; 
+
+    if (response.statusCode == 200) {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString("token", data['access_token']);
+
+      if (!mounted) return;
+
+      Navigator.pushReplacementNamed(context, "/home");
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(data['message'])));
+
+      if (kDebugMode) {
+        print("Login berhasil: ${data['user']}");
+      }
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(data['message'])));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: Column(
         children: [
-          // ===== HEADER IMAGE =====
+          // Header Image
           SizedBox(
             height: 372,
             width: double.infinity,
             child: Image.asset("assets/login_bg_smoke.png", fit: BoxFit.cover),
           ),
 
-          // ===== CONTAINER FORM + GRADIENT =====
+          // Container Form
           Expanded(
             child: Container(
               decoration: const BoxDecoration(
@@ -63,6 +136,7 @@ class LoginPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     TextField(
+                      controller: noIndukController,
                       decoration: InputDecoration(
                         hintText: "000000",
                         contentPadding: const EdgeInsets.symmetric(
@@ -95,6 +169,7 @@ class LoginPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     TextField(
+                      controller: passwordController,
                       obscureText: true,
                       decoration: InputDecoration(
                         hintText: "******",
@@ -122,7 +197,7 @@ class LoginPage extends StatelessWidget {
                       width: double.infinity,
                       height: 45,
                       child: ElevatedButton(
-                        onPressed: () {},
+                        onPressed: isLoading ? null : login,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF1C65AD),
                           elevation: 4,
@@ -130,14 +205,18 @@ class LoginPage extends StatelessWidget {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
-                          "Login",
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                        child: isLoading
+                          ? const CircularProgressIndicator(
                             color: Colors.white,
+                          )
+                          : const Text(
+                            "Login",
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                            ),
                           ),
-                        ),
                       ),
                     ),
                   ],

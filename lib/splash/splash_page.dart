@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:qhs_mobile/auth/login_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -14,17 +14,25 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
+    startSplash();
+  }
 
-    // Pindah halaman setelah 3 detik
-    Future.delayed(const Duration(seconds: 3), () {
+  Future<void> startSplash() async {
+    await Future.delayed(const Duration(seconds: 2));
+    await checkLoginStatus();
+  }
 
-      if (!mounted) return; // Cek apakah widget masih terpasang sebelum navigasi
+  Future<void> checkLoginStatus() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String? token = prefs.getString("token");
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()), // Ganti dengan halaman utama Anda
-      );
-    });
+    if (!mounted) return;
+
+    if (token != null) {
+      Navigator.pushReplacementNamed(context, "/home");
+    } else {
+      Navigator.pushReplacementNamed(context, "/login");
+    }
   }
 
   @override
@@ -46,12 +54,10 @@ class _SplashPageState extends State<SplashPage> {
         child: Stack(
           children: [
 
-            /// 🔵 LOGO TENGAH
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Ganti dengan Image.asset kalau pakai PNG
                   Image.asset(
                     "assets/logo_container.png",
                     width: 200,
@@ -60,7 +66,6 @@ class _SplashPageState extends State<SplashPage> {
               ),
             ),
 
-            /// 🔵 SPONSOR BAWAH
             Positioned(
               bottom: 60,
               left: 0,
