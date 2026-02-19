@@ -30,9 +30,7 @@ class _LoginPageState extends State<LoginPage> {
       }
     }
 
-    final url = Uri.parse(
-      "${baseUrl()}/api/mobile/login",
-    );
+    final url = Uri.parse("${baseUrl()}/api/mobile/login");
 
     final response = await http.post(
       url,
@@ -52,7 +50,7 @@ class _LoginPageState extends State<LoginPage> {
       isLoading = false;
     });
 
-    if (!mounted) return; 
+    if (!mounted) return;
 
     if (response.statusCode == 200) {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -62,17 +60,43 @@ class _LoginPageState extends State<LoginPage> {
 
       Navigator.pushReplacementNamed(context, "/home");
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(data['message'])));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(data['message'], style: TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFF1C65AD),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: EdgeInsets.all(16),
+          duration: Duration(seconds: 2),
+        ),
+      );
 
       if (kDebugMode) {
         print("Login berhasil: ${data['user']}");
       }
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(data['message'])));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.error, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(child: Text(data['message'])),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: EdgeInsets.all(16),
+        ),
+      );
+      if (kDebugMode) {
+        print("Login gagal: ${data['message']}");
+      }
     }
   }
 
@@ -206,17 +230,17 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         child: isLoading
-                          ? const CircularProgressIndicator(
-                            color: Colors.white,
-                          )
-                          : const Text(
-                            "Login",
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white,
-                            ),
-                          ),
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                              )
+                            : const Text(
+                                "Login",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                   ],
