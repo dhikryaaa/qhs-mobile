@@ -32,7 +32,10 @@ class _LoginPageState extends State<LoginPage> {
 
     final url = Uri.parse("${baseUrl()}/api/mobile/login");
 
-    final response = await http.post(
+    dynamic response;
+
+    try {
+      response = await http.post(
       url,
       headers: {
         "Content-Type": "application/json",
@@ -43,6 +46,36 @@ class _LoginPageState extends State<LoginPage> {
         "password": passwordController.text,
       }),
     );
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+      });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.error, color: Colors.white),
+              SizedBox(width: 8),
+              Expanded(child: Text("Gagal terhubung ke server")),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: EdgeInsets.all(16),
+        ),
+      );
+
+      if (kDebugMode) {
+        print("Error saat login: $e");
+      }
+      return;
+    }
 
     final data = jsonDecode(response.body);
 
