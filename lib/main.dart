@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qhs_mobile/auth/login_page.dart';
 import 'package:qhs_mobile/home/home_page.dart';
+import 'package:qhs_mobile/middleware/auth_guard.dart';
 import 'package:qhs_mobile/splash/splash_page.dart';
 
 void main() {
@@ -20,7 +21,9 @@ class MyApp extends StatelessWidget {
       routes: {
         '/': (context) => const SplashPage(),
         '/login': (context) => const LoginPage(),
-        '/home': (context) => const MyHomePage(title: "QHS Mobile Home"),
+        '/home': (context) => const AuthGuard(
+          child: MyHomePage(title: 'QHS Mobile App')
+          ),
       },
     );
   }
