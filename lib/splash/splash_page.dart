@@ -29,7 +29,7 @@ class _SplashPageState extends State<SplashPage> {
     if (!mounted) return;
 
     if (token != null) {
-      Navigator.pushReplacementNamed(context, "/home");
+      Navigator.pushReplacementNamed(context, "/inspeksi");
     } else {
       Navigator.pushReplacementNamed(context, "/login");
     }

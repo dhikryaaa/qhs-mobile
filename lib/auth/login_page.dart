@@ -91,7 +91,7 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
 
-      Navigator.pushReplacementNamed(context, "/home");
+      Navigator.pushReplacementNamed(context, "/inspeksi");
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
