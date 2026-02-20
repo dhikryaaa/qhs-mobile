@@ -63,12 +63,10 @@ class _InspectionPageState extends State<InspectionPage> {
 
   File? selectedImage;
 
-  // API data lists
   List<Inspector> petugasList = [];
   List<Departemen> departemenList = [];
   List<Lokasi> lokasiList = [];
 
-  // Loading / error states
   bool isLoadingPetugas = false;
   bool isLoadingDepartemen = false;
   bool isLoadingLokasi = false;
@@ -77,7 +75,6 @@ class _InspectionPageState extends State<InspectionPage> {
   String? errorDepartemen;
   String? errorLokasi;
 
-  // User info
   String namaUser = '';
 
   List<Map<String, dynamic>> rekapInspeksi = [];
@@ -89,7 +86,15 @@ class _InspectionPageState extends State<InspectionPage> {
     super.initState();
     jamMulaiController.text = DateFormat('HH:mm').format(DateTime.now());
     _loadNamaUser();
-    _fetchAll();
+    // Baca route arguments — data sudah di-prefetch dari halaman login
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+      if (args is Map<String, dynamic>) {
+        _applyPrefetchedData(args);
+      } else {
+        _fetchAll();
+      }
+    });
   }
 
   @override
@@ -105,6 +110,34 @@ class _InspectionPageState extends State<InspectionPage> {
     setState(() {
       namaUser = prefs.getString('nama') ?? '';
     });
+  }
+
+  void _applyPrefetchedData(Map<String, dynamic> args) {
+    final rawPetugas = args['petugasList'] as List<dynamic>? ?? [];
+    final rawDept    = args['departemenList'] as List<dynamic>? ?? [];
+    final rawLokasi  = args['lokasiList'] as List<dynamic>? ?? [];
+
+    setState(() {
+      petugasList    = rawPetugas.map((e) => Inspector.fromJson(e)).toList();
+      departemenList = rawDept.map((e) => Departemen.fromJson(e)).toList();
+      lokasiList = [
+        const Lokasi(kodeLokasi: '', namaLokasi: 'Umum'),
+        ...rawLokasi.map((e) => Lokasi.fromJson(e)),
+      ];
+      isLoadingPetugas    = false;
+      isLoadingDepartemen = false;
+      isLoadingLokasi     = false;
+    });
+  }
+
+  Future<Map<String, String>> _getAuthHeaders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
   }
 
   // ── API Fetch ──────────────────────────────────────────────────────────────
@@ -124,7 +157,7 @@ class _InspectionPageState extends State<InspectionPage> {
     });
     try {
       final uri = Uri.parse('${baseUrl()}/api/mobile/inspector');
-      final response = await http.get(uri);
+      final response = await http.get(uri, headers: await _getAuthHeaders());
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
         // Support both paginated { data: [...] } and plain list
@@ -149,7 +182,7 @@ class _InspectionPageState extends State<InspectionPage> {
     });
     try {
       final uri = Uri.parse('${baseUrl()}/api/mobile/departemen');
-      final response = await http.get(uri);
+      final response = await http.get(uri, headers: await _getAuthHeaders());
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
         final List<dynamic> raw = decoded is Map ? decoded['data'] : decoded;
@@ -173,13 +206,12 @@ class _InspectionPageState extends State<InspectionPage> {
     });
     try {
       final uri = Uri.parse('${baseUrl()}/api/mobile/lokasi');
-      final response = await http.get(uri);
+      final response = await http.get(uri, headers: await _getAuthHeaders());
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
         final List<dynamic> raw = decoded is Map ? decoded['data'] : decoded;
         final fetched = raw.map((e) => Lokasi.fromJson(e)).toList();
         setState(() {
-          // Prepend "Umum" entry at the top
           lokasiList = [
             const Lokasi(kodeLokasi: '', namaLokasi: 'Umum'),
             ...fetched,

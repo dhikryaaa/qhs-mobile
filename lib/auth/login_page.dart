@@ -17,6 +17,41 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController passwordController = TextEditingController();
 
   bool isLoading = false;
+  String _loadingLabel = 'Login';
+
+  Future<Map<String, dynamic>> _prefetchData(String token) async {
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': 'Bearer $token',
+    };
+
+    Future<List<dynamic>> fetchList(String path) async {
+      try {
+        final res = await http.get(
+          Uri.parse('${baseUrl()}$path'),
+          headers: headers,
+        );
+        if (res.statusCode == 200) {
+          final decoded = jsonDecode(res.body);
+          return decoded is Map ? (decoded['data'] as List? ?? []) : decoded as List;
+        }
+      } catch (_) {}
+      return [];
+    }
+
+    final results = await Future.wait([
+      fetchList('/api/mobile/inspector'),
+      fetchList('/api/mobile/departemen'),
+      fetchList('/api/mobile/lokasi'),
+    ]);
+
+    return {
+      'petugasList': results[0],
+      'departemenList': results[1],
+      'lokasiList': results[2],
+    };
+  }
 
   Future<void> login() async {
     setState(() {
@@ -72,15 +107,12 @@ class _LoginPageState extends State<LoginPage> {
 
     final data = jsonDecode(response.body);
 
-    setState(() {
-      isLoading = false;
-    });
-
     if (!mounted) return;
 
     if (response.statusCode == 200) {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString("token", data['access_token']);
+      final String token = data['access_token'];
+      await prefs.setString("token", token);
       final dynamic user = data['user'];
       if (user != null) {
         final String namaUser = (user is Map && user['nama'] != null)
@@ -91,25 +123,31 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
 
-      Navigator.pushReplacementNamed(context, "/inspeksi");
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(data['message'], style: TextStyle(color: Colors.white)),
+          content: Text(data['message'] ?? 'Login berhasil', style: const TextStyle(color: Colors.white)),
           backgroundColor: const Color(0xFF1C65AD),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: EdgeInsets.all(16),
-          duration: Duration(seconds: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 2),
         ),
       );
 
-      if (kDebugMode) {
-        print("Login berhasil: ${data['user']}");
-      }
+      setState(() => _loadingLabel = 'Memuat data...');
+      final prefetched = await _prefetchData(token);
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(
+        context,
+        '/inspeksi',
+        arguments: prefetched,
+      );
     } else {
+      setState(() {
+        isLoading = false;
+        _loadingLabel = 'Login';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -257,14 +295,34 @@ class _LoginPageState extends State<LoginPage> {
                         onPressed: isLoading ? null : login,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF1C65AD),
+                          disabledBackgroundColor: const Color(0xFF1C65AD).withValues(alpha: 0.3),
                           elevation: 4,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                         child: isLoading
-                            ? const CircularProgressIndicator(
-                                color: Colors.white,
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    _loadingLabel,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
                               )
                             : const Text(
                                 "Login",
