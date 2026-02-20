@@ -34,8 +34,6 @@ class _InspectionPageState extends State<InspectionPage> {
   void initState() {
     super.initState();
     jamMulaiController.text = DateFormat('HH:mm').format(DateTime.now());
-    // TODO: HAPUS setelah preview — hanya untuk melihat tampilan modal
-    WidgetsBinding.instance.addPostFrameCallback((_) => _showSuccessModal());
   }
 
   @override
