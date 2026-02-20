@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:qhs_mobile/core/constants.dart' show baseUrl;
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -22,15 +23,7 @@ class _LoginPageState extends State<LoginPage> {
       isLoading = true;
     });
 
-    String baseUrl() {
-      if (kIsWeb) {
-        return "http://localhost:8000";
-      } else {
-        return "http://10.0.2.2:8000";
-      }
-    }
-
-    final url = Uri.parse("${baseUrl()}/api/mobile/login");
+    final url = Uri.parse('${baseUrl()}/api/mobile/login');
 
     dynamic response;
 
@@ -88,6 +81,13 @@ class _LoginPageState extends State<LoginPage> {
     if (response.statusCode == 200) {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString("token", data['access_token']);
+      final dynamic user = data['user'];
+      if (user != null) {
+        final String namaUser = (user is Map && user['nama'] != null)
+            ? user['nama'].toString()
+            : user.toString();
+        await prefs.setString("nama", namaUser);
+      }
 
       if (!mounted) return;
 
