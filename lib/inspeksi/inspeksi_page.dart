@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -61,7 +60,9 @@ class _InspectionPageState extends State<InspectionPage> {
   String? selectedDepartemen;
   String? selectedLokasi;
 
-  File? selectedImage;
+  // XFile untuk upload (semua platform), bytes untuk preview web
+  XFile? selectedImage;
+  Uint8List? selectedImageBytes;
 
   List<Inspector> petugasList = [];
   List<Departemen> departemenList = [];
@@ -76,6 +77,8 @@ class _InspectionPageState extends State<InspectionPage> {
   String? errorLokasi;
 
   String namaUser = '';
+  bool isSubmitting = false;
+  bool isKirim = false;
 
   List<Map<String, dynamic>> rekapInspeksi = [];
 
@@ -86,7 +89,6 @@ class _InspectionPageState extends State<InspectionPage> {
     super.initState();
     jamMulaiController.text = DateFormat('HH:mm').format(DateTime.now());
     _loadNamaUser();
-    // Baca route arguments — data sudah di-prefetch dari halaman login
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map<String, dynamic>) {
@@ -160,7 +162,6 @@ class _InspectionPageState extends State<InspectionPage> {
       final response = await http.get(uri, headers: await _getAuthHeaders());
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        // Support both paginated { data: [...] } and plain list
         final List<dynamic> raw = decoded is Map ? decoded['data'] : decoded;
         setState(() {
           petugasList = raw.map((e) => Inspector.fromJson(e)).toList();
@@ -227,6 +228,109 @@ class _InspectionPageState extends State<InspectionPage> {
     }
   }
 
+  // ── Submit API Methods ─────────────────────────────────────────────────────
+
+  Future<String> _generateNomor() async {
+    final headers = await _getAuthHeaders();
+    final uri = Uri.parse('${baseUrl()}/api/mobile/generate-nomor');
+    final response = await http.post(uri, headers: headers);
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      final body = response.body.trim();
+      if (body.startsWith('{') || body.startsWith('[')) {
+        try {
+          final decoded = jsonDecode(body);
+          if (decoded is String) return decoded;
+          return decoded['nomor']?.toString() ?? body;
+        } catch (_) {
+          return body;
+        }
+      }
+      return body; 
+    }
+    throw Exception('Gagal generate nomor (${response.statusCode})');
+  }
+
+  Future<String> _uploadFile(String noDokumen, XFile imageXFile, Uint8List? imageBytes) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token') ?? '';
+    final uri = Uri.parse('${baseUrl()}/api/mobile/transaksi-inspeksi/upload');
+    final ext = imageXFile.name.split('.').last;
+    final filename = '$noDokumen.$ext';
+
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $token'
+      ..headers['Accept'] = 'application/json'
+      ..fields['no_dokumen'] = noDokumen;
+
+    if (kIsWeb && imageBytes != null) {
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        imageBytes,
+        filename: filename,
+      ));
+    } else {
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        imageXFile.path,
+        filename: filename,
+      ));
+    }
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      try {
+        final decoded = jsonDecode(response.body);
+        return decoded['file_name']?.toString() ?? '';
+      } catch (_) {
+        return response.body.trim();
+      }
+    }
+    throw Exception('Gagal upload file (${response.statusCode})');
+  }
+
+  Future<void> _storeInspeksi({
+    required String noDokumen,
+    required String jamMulai,
+    required String noInduk,
+    required String kodeDept,
+    required String? kodeLokasi,
+    required String buktiTemuan,
+    required String deskripsi,
+  }) async {
+    final headers = await _getAuthHeaders();
+    final uri = Uri.parse('${baseUrl()}/api/mobile/transaksi-inspeksi');
+    final body = jsonEncode({
+      'no_dokumen': noDokumen,
+      'jam_mulai': jamMulai,
+      'no_induk': noInduk,
+      'kode_dept': kodeDept,
+      'kode_lokasi': (kodeLokasi?.isNotEmpty ?? false) ? kodeLokasi : null,
+      'bukti_temuan': buktiTemuan,
+      'deskripsi': deskripsi,
+    });
+    final response = await http.post(uri, headers: headers, body: body);
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      String errorMessage = 'Gagal menyimpan inspeksi (${response.statusCode})';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded.containsKey('message')) {
+          errorMessage = decoded['message'].toString();
+          if (decoded.containsKey('errors')) {
+            errorMessage += '\n${decoded['errors']}';
+          }
+        }
+      } catch (_) {
+        final bodyText = response.body.trim();
+        if (bodyText.isNotEmpty) {
+          errorMessage += '\n${bodyText.substring(0, bodyText.length > 100 ? 100 : bodyText.length)}...';
+        }
+      }
+      throw Exception(errorMessage);
+    }
+  }
+
   // ── Form actions ──────────────────────────────────────────────────────────
 
   void startEdit() {
@@ -242,6 +346,7 @@ class _InspectionPageState extends State<InspectionPage> {
       selectedDepartemen = null;
       selectedLokasi = null;
       selectedImage = null;
+      selectedImageBytes = null;
       deskripsiController.clear();
       jamSelesaiController.clear();
     });
@@ -261,35 +366,74 @@ class _InspectionPageState extends State<InspectionPage> {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
-      setState(() => selectedImage = File(image.path));
+      final bytes = await image.readAsBytes();
+      setState(() {
+        selectedImage = image;
+        selectedImageBytes = bytes;
+      });
     }
   }
 
   void submitTemuan() {
-    if (!formValid) return;
+    if (!formValid || isSubmitting) return;
     setState(() {
-      jamSelesaiController.text = DateFormat('HH:mm').format(DateTime.now());
       rekapInspeksi.add({
         'jamMulai': jamMulaiController.text,
-        'jamSelesai': jamSelesaiController.text,
-        'petugas': selectedPetugas,
-        'departemen': selectedDepartemen,
-        'lokasi': selectedLokasi,
+        'noInduk': selectedPetugas,
+        'kodeDept': selectedDepartemen,
+        'kodeLokasi': selectedLokasi,
+        'imageXFile': selectedImage,
+        'imageBytes': selectedImageBytes,
         'deskripsi': deskripsiController.text,
-        'image': selectedImage,
       });
       resetForm();
     });
   }
 
   Future<void> kirimKeApi() async {
-    if (kDebugMode) print(rekapInspeksi);
-    // TODO: ganti dengan http post ke backend
+    if (rekapInspeksi.isEmpty || isKirim) return;
+    setState(() => isKirim = true);
+    int berhasil = 0;
+    int gagal = 0;
+    List<String> errorMessages = [];
     try {
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted) _showSuccessModal();
-    } catch (e) {
-      if (mounted) _showErrorToast('Gagal mengirim data. Coba lagi.');
+      for (final temuan in rekapInspeksi) {
+        try {
+          final noDokumen = await _generateNomor();
+
+          final XFile imageXFile = temuan['imageXFile'] as XFile;
+          final Uint8List? imageBytes = temuan['imageBytes'] as Uint8List?;
+          final buktiTemuan = await _uploadFile(noDokumen, imageXFile, imageBytes);
+
+          await _storeInspeksi(
+            noDokumen: noDokumen,
+            jamMulai: temuan['jamMulai'] as String,
+            noInduk: temuan['noInduk'] as String,
+            kodeDept: temuan['kodeDept'] as String,
+            kodeLokasi: temuan['kodeLokasi'] as String?,
+            buktiTemuan: buktiTemuan,
+            deskripsi: temuan['deskripsi'] as String,
+          );
+          berhasil++;
+        } catch (e) {
+          gagal++;
+          errorMessages.add(e.toString().replaceAll('Exception: ', ''));
+        }
+      }
+
+      if (!mounted) return;
+
+      if (gagal == 0) {
+        rekapInspeksi.clear();
+        _showSuccessModal();
+      } else if (berhasil == 0) {
+        _showErrorToast('Gagal mengirim: \n${errorMessages.join('\n')}');
+      } else {
+        _showErrorToast('$berhasil temuan berhasil, $gagal gagal.\nError: ${errorMessages.first}...');
+        _showSuccessModal();
+      }
+    } finally {
+      if (mounted) setState(() => isKirim = false);
     }
   }
 
@@ -497,6 +641,7 @@ class _InspectionPageState extends State<InspectionPage> {
       return _errorRetryRow(errorPetugas!, _fetchPetugas);
     }
     return DropdownButtonFormField2<String>(
+      isExpanded: true,
       value: selectedPetugas,
       hint: const Text(
         'Pilih Petugas',
@@ -507,6 +652,7 @@ class _InspectionPageState extends State<InspectionPage> {
         child: Text(
           inspector.nama,
           style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 12, color: Color(0xFF475467)),
+          overflow: TextOverflow.ellipsis,
         ),
       )).toList(),
       onChanged: isEditing ? (val) => setState(() => selectedPetugas = val) : null,
@@ -529,6 +675,7 @@ class _InspectionPageState extends State<InspectionPage> {
       return _errorRetryRow(errorDepartemen!, _fetchDepartemen);
     }
     return DropdownButtonFormField2<String>(
+      isExpanded: true,
       value: selectedDepartemen,
       hint: const Text(
         'Pilih Departemen',
@@ -539,6 +686,7 @@ class _InspectionPageState extends State<InspectionPage> {
         child: Text(
           dept.namaDept,
           style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 12, color: Color(0xFF475467)),
+          overflow: TextOverflow.ellipsis,
         ),
       )).toList(),
       onChanged: isEditing ? (val) => setState(() => selectedDepartemen = val) : null,
@@ -561,6 +709,7 @@ class _InspectionPageState extends State<InspectionPage> {
       return _errorRetryRow(errorLokasi!, _fetchLokasi);
     }
     return DropdownButtonFormField2<String>(
+      isExpanded: true,
       value: selectedLokasi,
       hint: const Text(
         'Pilih Lokasi',
@@ -571,6 +720,7 @@ class _InspectionPageState extends State<InspectionPage> {
         child: Text(
           lok.namaLokasi,
           style: const TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w500, fontSize: 12, color: Color(0xFF475467)),
+          overflow: TextOverflow.ellipsis,
         ),
       )).toList(),
       onChanged: lokasiAktif ? (val) => setState(() => selectedLokasi = val) : null,
@@ -754,64 +904,92 @@ class _InspectionPageState extends State<InspectionPage> {
 
                     // Bukti Foto Inspeksi
                     _label('Bukti Foto Inspeksi'),
-                    GestureDetector(
-                      onTap: detailAktif ? pickImage : null,
-                      child: Container(
-                        width: double.infinity,
-                        height: 135,
-                        decoration: BoxDecoration(
-                          color: detailAktif ? Colors.white : const Color(0xFFEAECF0),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFD0D5DD)),
+                    Stack(
+                      children: [
+                        GestureDetector(
+                          onTap: detailAktif ? pickImage : null,
+                          child: Container(
+                            width: double.infinity,
+                            height: 135,
+                            decoration: BoxDecoration(
+                              color: detailAktif ? Colors.white : const Color(0xFFEAECF0),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFD0D5DD)),
+                            ),
+                            child: selectedImage == null
+                                ? Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        width: 50,
+                                        height: 50,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFFEAECF0),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          Icons.upload_file_outlined,
+                                          color: detailAktif ? const Color(0xFF194185) : const Color(0xFF98A2B3),
+                                          size: 28,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'Klik untuk Upload Foto',
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: detailAktif ? const Color(0xFF0086C9) : const Color(0xFF98A2B3),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      const Text(
+                                        'PNG, JPG files ( max 10mb )',
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontWeight: FontWeight.w400,
+                                          fontSize: 14,
+                                          color: Color(0xFF98A2B3),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: selectedImageBytes != null
+                                        ? Image.memory(
+                                            selectedImageBytes!,
+                                            fit: BoxFit.cover,
+                                            width: double.infinity,
+                                          )
+                                        : const SizedBox.shrink(),
+                                  ),
+                          ),
                         ),
-                        child: selectedImage == null
-                            ? Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    width: 50,
-                                    height: 50,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFFEAECF0),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      Icons.upload_file_outlined,
-                                      color: detailAktif ? const Color(0xFF194185) : const Color(0xFF98A2B3),
-                                      size: 28,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Klik untuk Upload Foto',
-                                    style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14,
-                                      color: detailAktif ? const Color(0xFF0086C9) : const Color(0xFF98A2B3),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  const Text(
-                                    'PNG, JPG files ( max 10mb )',
-                                    style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontWeight: FontWeight.w400,
-                                      fontSize: 14,
-                                      color: Color(0xFF98A2B3),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.file(
-                                  selectedImage!,
-                                  fit: BoxFit.cover,
-                                  width: double.infinity,
+                        // Tombol X merah — muncul hanya ketika ada foto dipilih
+                        if (selectedImage != null)
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: GestureDetector(
+                              onTap: () => setState(() => selectedImage = null),
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFD92D20),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                  size: 16,
                                 ),
                               ),
-                      ),
+                            ),
+                          ),
+                      ],
                     ),
 
                     const SizedBox(height: 12),
@@ -874,17 +1052,26 @@ class _InspectionPageState extends State<InspectionPage> {
                       width: double.infinity,
                       height: 44,
                       child: ElevatedButton(
-                        onPressed: formValid ? submitTemuan : null,
+                        onPressed: (formValid && !isSubmitting) ? submitTemuan : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF1C65AD),
                           disabledBackgroundColor: const Color(0xFF1C65AD).withValues(alpha: 0.3),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           elevation: 1,
                         ),
-                        child: const Text(
-                          'Simpan Inspeksi',
-                          style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white),
-                        ),
+                        child: isSubmitting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text(
+                                'Simpan Inspeksi',
+                                style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white),
+                              ),
                       ),
                     ),
 
@@ -935,17 +1122,26 @@ class _InspectionPageState extends State<InspectionPage> {
                     width: double.infinity,
                     height: 41,
                     child: ElevatedButton(
-                      onPressed: rekapInspeksi.isNotEmpty ? kirimKeApi : null,
+                      onPressed: (rekapInspeksi.isNotEmpty && !isKirim) ? kirimKeApi : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF003A74),
                         disabledBackgroundColor: const Color(0xFF003A74).withValues(alpha: 0.3),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         elevation: 0,
                       ),
-                      child: const Text(
-                        'Submit Temuan',
-                        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white),
-                      ),
+                      child: isKirim
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Text(
+                              'Submit Temuan',
+                              style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white),
+                            ),
                     ),
                   ),
                 ],
