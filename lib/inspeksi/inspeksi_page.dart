@@ -34,6 +34,8 @@ class _InspectionPageState extends State<InspectionPage> {
   void initState() {
     super.initState();
     jamMulaiController.text = DateFormat('HH:mm').format(DateTime.now());
+    // TODO: HAPUS setelah preview — hanya untuk melihat tampilan modal
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showSuccessModal());
   }
 
   @override
@@ -99,9 +101,143 @@ class _InspectionPageState extends State<InspectionPage> {
     });
   }
 
-  void kirimKeApi() {
+  Future<void> kirimKeApi() async {
     if (kDebugMode) print(rekapInspeksi);
-    // lakukan http post ke backend di sini
+    // TODO: ganti dengan http post ke backend
+    try {
+      // Simulasi API call
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Anggap sukses — ganti with actual response check
+      if (mounted) _showSuccessModal();
+    } catch (e) {
+      if (mounted) _showErrorToast('Gagal mengirim data. Coba lagi.');
+    }
+  }
+
+  void _showSuccessModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          width: 338,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFCFCFD),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: const [
+              BoxShadow(
+                color: Color.fromRGBO(20, 20, 20, 0.12),
+                blurRadius: 20,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Badge icon
+              Image.asset(
+                'assets/blue_success.png',
+                width: 88,
+                height: 84,
+              ),
+              const SizedBox(height: 12),
+              // Title
+              const Text(
+                'Berhasil Submit',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w600,
+                  fontSize: 20,
+                  color: Color(0xFF0086C9),
+                  shadows: [
+                    Shadow(
+                      color: Color.fromRGBO(0, 0, 0, 0.25),
+                      blurRadius: 1,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Button
+              SizedBox(
+                width: double.infinity,
+                height: 38.51,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    setState(() {
+                      rekapInspeksi.clear();
+                      isEditing = false;
+                      resetForm();
+                    });
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF003A74),
+                    side: const BorderSide(
+                      color: Color(0xFF0086C9),
+                      width: 0.84,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(3.35),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Kembali ke Transaksi',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w600,
+                      fontSize: 11.72,
+                      color: Color(0xFFF6FEF9),
+                      shadows: [
+                        Shadow(
+                          color: Color.fromRGBO(0, 0, 0, 0.25),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showErrorToast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFFD92D20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w500,
+                  fontSize: 13,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
